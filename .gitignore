@@ -1,0 +1,21 @@
+Fichiers de données sources et générés
+
+*.tsv
+*.mp4
+*.csv
+
+Dossiers de sortie générés par le script
+
+Images avec points/
+Images avec parcours/
+
+Fichiers temporaires Python
+
+pycache/
+*.pyc
+*.pyo
+*.pyd
+
+Environnement virtuel Poetry
+
+.venv/

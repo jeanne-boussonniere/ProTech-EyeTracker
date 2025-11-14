@@ -1,0 +1,26 @@
+[tool.poetry]
+name = "protech-eye-tracking"
+version = "0.1.0"
+description = "Analyse de données d'eye-tracking (fichiers TSV) et synchronisation vidéo."
+authors = ["jeanne-boussonniere"]
+readme = "README.md"
+packages = [
+    { include = "ProTech.py" }
+]
+
+[tool.poetry.dependencies]
+python = "^3.10" # Assurez-vous d'avoir Python 3.10 ou plus
+
+pandas = "*"
+openpyxl = "*"
+scikit-learn = "*"  # Pour sklearn
+matplotlib = "*"
+moviepy = "*"
+scipy = "*"
+opencv-python = "*" # Pour cv2
+numpy = "*"
+
+
+[build-system]
+requires = ["poetry-core"]
+build-backend = "poetry.core.masonry.api"
