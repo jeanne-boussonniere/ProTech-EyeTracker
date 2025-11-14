@@ -27,7 +27,7 @@ Cette commande va lire le fichier pyproject.toml, créer un environnement virtue
 
 ## Exécution du Projet :
 
-Le script ProTech.py s'exécute via poetry run et nécessite des arguments pour choisir l'action à effectuer.
+Le script code.py s'exécute via poetry run et nécessite des arguments pour choisir l'action à effectuer.
 
 **Syntaxe générale :** `poetry run python code.py [ACTION] --start [DEBUT] --end [FIN] --output [NOM_SORTIE]`
 

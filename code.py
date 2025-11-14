@@ -121,7 +121,7 @@ def video_chemin (video, t1, t2, nom_extrait, x_filtered, y_filtered, time_filte
 #Génère le nombre d'images demandé entre t1 et t2 avec le tracé du regard jusqu'à l'instant t de l'image
 def generer_images_parcours(video_source, t1, t2, nb_frames, nom_base_images, x_filtered, y_filtered, time_filtered):
 
-    os.makedirs("Images avec parcours")
+    os.makedirs(nom_base_images)
 
     nom_extrait = f"{nom_base_images}_clip"
     prendre_extrait(video_source, t1, t2, nom_extrait)
@@ -154,7 +154,7 @@ def generer_images_parcours(video_source, t1, t2, nb_frames, nom_base_images, x_
             data_idx_pointer += 1 
 
         if current_data_idx == -1 or t_frame < time[0]:
-            nom_image = os.path.join("Images avec parcours", f"frame_{i+1:03d}.png")
+            nom_image = os.path.join(nom_base_images, f"frame_{i+1:03d}.png")
             cv2.imwrite(nom_image, frame)
             print(f"Image sauvegardée (avant data): {nom_image} (t={t_frame:.2f}s)")
             continue 
@@ -170,7 +170,7 @@ def generer_images_parcours(video_source, t1, t2, nb_frames, nom_base_images, x_
         x_t, y_t = points_to_draw[-1]
         cv2.circle(frame, (x_t, y_t), 8, (255, 255, 0), -1)
 
-        nom_image = os.path.join("Images avec parcours", f"frame_{i+1:03d}.png")
+        nom_image = os.path.join(nom_base_images, f"frame_{i+1:03d}.png")
 
         cv2.imwrite(nom_image, frame)
         print(f"Image sauvegardée : {nom_image} (correspondant à t={t_frame:.2f}s)")
@@ -183,7 +183,7 @@ def generer_images_parcours(video_source, t1, t2, nb_frames, nom_base_images, x_
 #Génère le nombre d'images demandé entre t1 et t2 avec le point du regard à l'instant t de l'image
 def generer_images_points(video_source, t1, t2, nb_frames, nom_base_images, x_filtered, y_filtered, time_filtered):
 
-    os.makedirs("Images avec points")
+    os.makedirs(nom_base_images)
 
     nom_extrait = f"{nom_base_images}_clip"
     prendre_extrait(video_source, t1, t2, nom_extrait)
@@ -216,7 +216,7 @@ def generer_images_points(video_source, t1, t2, nb_frames, nom_base_images, x_fi
             data_idx_pointer += 1 
 
         if current_data_idx == -1 or t_frame < time[0]:
-            nom_image = os.path.join("Images avec points", f"frame_{i+1:03d}.png")
+            nom_image = os.path.join(nom_base_images, f"frame_{i+1:03d}.png")
             cv2.imwrite(nom_image, frame)
             print(f"Image sauvegardée (avant data): {nom_image} (t={t_frame:.2f}s)")
             continue
@@ -226,7 +226,7 @@ def generer_images_points(video_source, t1, t2, nb_frames, nom_base_images, x_fi
 
         cv2.circle(frame, (x_t, y_t), 8, (255, 255, 0), -1)
 
-        nom_image = os.path.join("Images avec points", f"frame_{i+1:03d}.png")
+        nom_image = os.path.join(nom_base_images, f"frame_{i+1:03d}.png")
 
         cv2.imwrite(nom_image, frame)
         print(f"Image sauvegardée : {nom_image} (correspondant à t={t_frame:.2f}s)")
@@ -235,37 +235,102 @@ def generer_images_points(video_source, t1, t2, nb_frames, nom_base_images, x_fi
 
     print(f"\nTerminé. {nb_frames} images ont été générées avec le préfixe '{nom_base_images}'.")
 
+#Demande un float à l'utilisateur
+def ask_float(prompt):
+    while True:
+        try:
+            return float(input(prompt))
+        except ValueError:
+            print("Erreur : Veuillez entrer un nombre (ex: 5.0).")
+
+#Demande un int à l'utilisateur
+def ask_int(prompt, default=None):
+    while True:
+        val = input(prompt)
+        if not val and default is not None:
+            return default
+        try:
+            return int(val)
+        except ValueError:
+            print("Erreur : Veuillez entrer un nombre entier.")
+
+#Demande une chaîne non vide
+def ask_string(prompt):
+    while True:
+        val = input(prompt)
+        if val:
+            return val
+        print("Erreur : Ce champ ne peut pas être vide.")
+
 
 def main():
-    parser = argparse.ArgumentParser(description="Outil d'analyse et de visualisation Eye-Tracking ProTech.")
-
-    parser.add_argument(
-        "action", 
-        choices=["video_chemin", "images_parcours", "images_points", "extrait"],
-        help="L'action à effectuer : générer une vidéo avec chemin, des images avec parcours, des images avec points, ou juste un extrait vidéo."
-    )
-
-    parser.add_argument("-s", "--start", type=float, required=True, help="Temps de début en secondes (ex: 5.0)")
-    parser.add_argument("-e", "--end", type=float, required=True, help="Temps de fin en secondes (ex: 10.0)")
-    parser.add_argument("-o", "--output", type=str, required=True, help="Nom du fichier ou dossier de sortie (sans extension)")
-    parser.add_argument("-n", "--frames", type=int, default=10, help="Nombre d'images à générer (uniquement pour les actions 'images_*'). Par défaut: 10.")
-
+    parser = argparse.ArgumentParser(description="Outil interactif d'analyse Eye-Tracking ProTech.")
+    
+    parser.add_argument("tsv_file", help="Chemin vers le fichier de données .tsv")
+    parser.add_argument("video_file", help="Chemin vers le fichier vidéo .mp4")
+    
     args = parser.parse_args()
 
-    fichier_tsv = "20250424_0001_00.tsv"
-    fichier_csv = "20250424_0001_00.csv"
-    video_path = '20250424_0001_00.mp4'
+    fichier_tsv = args.tsv_file
+    video_path = args.video_file
 
-    if args.action == "extrait":
-        print(f"Extraction vidéo de {args.start}s à {args.end}s...")
-        prendre_extrait(video_path, args.start, args.end, args.output)
+    # 2. VÉRIFICATION DES FICHIERS
+    if not os.path.exists(fichier_tsv):
+        print(f"Erreur: Le fichier TSV '{fichier_tsv}' est introuvable.")
+        return
+    if not os.path.exists(video_path):
+        print(f"Erreur: Le fichier vidéo '{video_path}' est introuvable.")
+        return
+
+    print(f"Fichier TSV chargé : {fichier_tsv}")
+    print(f"Fichier Vidéo chargé : {video_path}")
+
+    # 3. MENU INTERACTIF
+    print("\n--- Menu ProTech ---")
+    print("Quelle action souhaitez-vous effectuer ?")
+    print("  1: Extraire un clip vidéo (extrait)")
+    print("  2: Générer une vidéo avec tracé (video_chemin)")
+    print("  3: Générer des images avec tracé (images_parcours)")
+    print("  4: Générer des images avec points (images_points)")
+
+    action_choice = ""
+    while action_choice not in ["1", "2", "3", "4"]:
+        action_choice = input("Votre choix (1-4) : ")
+
+    actions_map = {
+        "1": "extrait",
+        "2": "video_chemin",
+        "3": "images_parcours",
+        "4": "images_points"
+    }
+    action = actions_map[action_choice]
+
+    # 4. DEMANDE DES PARAMÈTRES
+    print("\nVeuillez entrer les paramètres :")
+    t_start = ask_float("  Temps de début (en secondes) : ")
+    t_end = ask_float("  Temps de fin (en secondes) : ")
+    output_name = ask_string("  Nom du fichier/dossier de sortie : ")
+    
+    nb_frames = 10 # Valeur par défaut
+    if action in ["images_parcours", "images_points"]:
+        nb_frames = ask_int(f"  Nombre d'images (par défaut: {nb_frames}) : ", default=nb_frames)
+
+    if action == "extrait":
+        print(f"\nLancement de l'action : {action}...")
+        prendre_extrait(video_path, t_start, t_end, output_name)
         print("Terminé.")
         return
 
-    print(f"Traitement du fichier : {fichier_tsv}")
-
-    df = pd.read_csv(fichier_tsv, sep='\t', comment='#')
-    df.to_csv(fichier_csv, index=False)
+    # Pour les autres actions, on charge et nettoie les données
+    print(f"\nTraitement du fichier TSV...")
+    fichier_csv = os.path.splitext(fichier_tsv)[0] + ".csv"
+    
+    try:
+        df = pd.read_csv(fichier_tsv, sep='\t', comment='#')
+        df.to_csv(fichier_csv, index=False)
+    except Exception as e:
+        print(f"Erreur lors de la lecture ou conversion du TSV : {e}")
+        return
 
     gaze2dx = Colonne(fichier_csv, 'Gaze2dX')
     gaze2dy = Colonne(fichier_csv, 'Gaze2dY')
@@ -274,18 +339,22 @@ def main():
     
     x_filtered, y_filtered, time_filtered = Nettoyage(gaze2dx, gaze2dy, MediaTimeStamp, gaze_class)
 
-    if args.action == "video_chemin":
-        print(f"Génération de la vidéo avec tracé : {args.output}_chemin.mp4")
-        video_chemin(video_path, args.start, args.end, args.output, x_filtered, y_filtered, time_filtered)
+    # 6. EXÉCUTION DE L'ACTION DEMANDÉE
+    print(f"\nLancement de l'action : {action}...")
+    
+    if action == "video_chemin":
+        print(f"Génération de la vidéo avec tracé : {output_name}_chemin.mp4")
+        video_chemin(video_path, t_start, t_end, output_name, x_filtered, y_filtered, time_filtered)
 
-    elif args.action == "images_parcours":
-        print(f"Génération de {args.frames} images (parcours) dans le dossier : {args.output}")
-        generer_images_parcours(video_path, args.start, args.end, args.frames, args.output, x_filtered, y_filtered, time_filtered)
+    elif action == "images_parcours":
+        print(f"Génération de {nb_frames} images (parcours) dans le dossier : {output_name}")
+        generer_images_parcours(video_path, t_start, t_end, nb_frames, output_name, x_filtered, y_filtered, time_filtered)
 
-    elif args.action == "images_points":
-        print(f"Génération de {args.frames} images (points simples) dans le dossier : {args.output}")
-        generer_images_points(video_path, args.start, args.end, args.frames, args.output, x_filtered, y_filtered, time_filtered)
+    elif action == "images_points":
+        print(f"Génération de {nb_frames} images (points simples) dans le dossier : {output_name}")
+        generer_images_points(video_path, t_start, t_end, nb_frames, output_name, x_filtered, y_filtered, time_filtered)
 
+    print("Traitement terminé.")
 
 if __name__ == "__main__":
     main()
