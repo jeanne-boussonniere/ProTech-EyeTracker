@@ -1,32 +1,19 @@
-import openpyxl
-from collections import Counter
-from sklearn.cluster import DBSCAN
-import matplotlib.pyplot as plt
-from sklearn.neighbors import NearestNeighbors
-from sklearn.preprocessing import StandardScaler
-
-from moviepy import VideoFileClip, TextClip, CompositeVideoClip, VideoClip
+from moviepy import VideoFileClip, CompositeVideoClip, VideoClip
 import pandas as pd
-import csv
-from scipy.interpolate import interp1d
 import cv2
 import numpy as np
 import os
-import argparse
+import sys
+import threading
+import tkinter as tk
+from tkinter import filedialog, messagebox, scrolledtext, ttk
 
-#Extrait les données du fichier csv par colonne
-def Colonne(fichier, nom_Colonne):
-    C = []
-    with open(fichier, newline='', encoding='utf-8') as csvfile:
-        reader = csv.DictReader(csvfile)
-        for row in reader:
-            C.append(row[nom_Colonne])
-    return C
-
+CONSOL_WRITE = sys.__stdout__.write
 
 #Garde uniquement les données utiles (les points de fixation)
 def Nettoyage (gaze2dx,gaze2dy,MediaTimeStamp, gaze_class):
-    fixations_idx = [i for i, gclass in enumerate(gaze_class) if gclass == 'F']
+    min_len = min(len(gaze2dx), len(gaze2dy), len(MediaTimeStamp), len(gaze_class))
+    fixations_idx = [i for i in range(min_len) if str(gaze_class[i]).strip() not in ['nan', '', 'None']]
     fixation_gaze2dx = [gaze2dx[i] for i in fixations_idx]
     fixation_gaze2dy = [gaze2dy[i] for i in fixations_idx]
     fixation_time_stamp = [MediaTimeStamp[i] for i in fixations_idx]
@@ -60,15 +47,23 @@ def dernier_indice(lst, value):
 
 
 #Prend un extrait d'une vidéo selon les timecodes donnés
-def prendre_extrait (video,t1,t2,nom_extrait):
-    clip = VideoFileClip(video).subclipped(t1,t2)
-    clip.write_videofile(nom_extrait+".mp4")
+def prendre_extrait (video,t1,t2,dossier_sortie):
+    chemin_sortie = os.path.join(dossier_sortie, f"{dossier_sortie}.mp4")
+    clip = VideoFileClip(video).subclipped(t1, t2)
+    clip.write_videofile(chemin_sortie, codec="libx264", audio_codec="aac", logger=None)
+    clip.close()
 
 
 #Extrait les données correspondant à un extrait de vidéo entre t1 et t2
-def extrait_donnees (t1, t2, x_filtered, y_filtered, time_filtered) :
+def extrait_donnees_utiles (t1, t2, x_filtered, y_filtered, time_filtered) :
+    if not time_filtered:
+        return [], [], []
+
     t1_precis = premier_indice(time_filtered,t1)
     t2_precis = dernier_indice(time_filtered,t2)
+
+    if t1_precis is None or t2_precis is None or t1_precis > t2_precis:
+        return [], [], []
 
     x_extrait = x_filtered [t1_precis:t2_precis+1]
     y_extrait = y_filtered [t1_precis:t2_precis+1]
@@ -76,14 +71,35 @@ def extrait_donnees (t1, t2, x_filtered, y_filtered, time_filtered) :
 
     return x_extrait, y_extrait, time_extrait
 
+#Sauvegarde au format CSV les données entre t1 et t2.
+def sauvegarder_csv_extrait(df, t1, t2, dossier_sortie):
+    """Sauvegarde le CSV filtré dans le dossier de sortie."""
+    
+    if 'MediaTimeStamp' not in df.columns:
+        print("ERREUR : Colonne 'MediaTimeStamp' introuvable.")
+        return
+
+    masque_temps = (df['MediaTimeStamp'] >= t1) & (df['MediaTimeStamp'] <= t2)
+    df_extrait = df[masque_temps]
+
+    if df_extrait.empty:
+        print("ATTENTION : Aucune donnée trouvée dans cet intervalle.")
+        return
+
+    nom_fichier_final = os.path.join(dossier_sortie, f"{dossier_sortie}_Extrait.csv")
+    
+    df_extrait.to_csv(nom_fichier_final, index=False, sep=';')
+    print(f" -> Fichier extrait sauvegardé : {nom_fichier_final}")
+
 
 #Trace le chemin du regard pour un extrait de vidéo entre t1 et t2
-def video_chemin (video, t1, t2, nom_extrait, x_filtered, y_filtered, time_filtered) :
-    prendre_extrait (video, t1, t2, nom_extrait)
-    x, y, time_extrait = extrait_donnees(t1, t2, x_filtered, y_filtered, time_filtered)
+def video_chemin (video, t1, t2, dossier_sortie, x_filtered, y_filtered, time_filtered) :
+    prendre_extrait (video, t1, t2, dossier_sortie)
+    chemin_brut = os.path.join(dossier_sortie, f"{dossier_sortie}.mp4")
+    x, y, time_extrait = extrait_donnees_utiles(t1, t2, x_filtered, y_filtered, time_filtered)
     time = [tt - t1 for tt in time_extrait] 
 
-    clip = VideoFileClip(nom_extrait + ".mp4")
+    clip = VideoFileClip(chemin_brut)
 
     current_idx = [0]
 
@@ -113,248 +129,267 @@ def video_chemin (video, t1, t2, nom_extrait, x_filtered, y_filtered, time_filte
         frame = cv2.cvtColor(frame, cv2.COLOR_BGR2RGB)
         return frame
     
+    chemin_final = os.path.join(dossier_sortie, f"{dossier_sortie}_chemin.mp4")
     trace_clip = VideoClip(make_frame, duration=clip.duration).with_fps(clip.fps)
     final = CompositeVideoClip([clip, trace_clip])
-    final.write_videofile(nom_extrait + "_chemin.mp4", fps=clip.fps)
+    final.write_videofile(chemin_final, fps=clip.fps, codec="libx264", logger=None)
+    clip.close()
+    print(f" -> Vidéo finale prête : {chemin_final}")
 
 
 #Génère le nombre d'images demandé entre t1 et t2 avec le tracé du regard jusqu'à l'instant t de l'image
-def generer_images_parcours(video_source, t1, t2, nb_frames, nom_base_images, x_filtered, y_filtered, time_filtered):
+def generer_images_boucle(video_source, t1, t2, nb_frames, dossier_sortie, x_filtered, y_filtered, time_filtered, mode="parcours", show_bg=True):
+    prendre_extrait(video_source, t1, t2, dossier_sortie)
+    chemin_temp = os.path.join(dossier_sortie, f"{dossier_sortie}.mp4")
+    
+    clip = VideoFileClip(chemin_temp)
+    x, y, time_extrait = extrait_donnees_utiles(t1, t2, x_filtered, y_filtered, time_filtered)
+    time_vals = [tt - t1 for tt in time_extrait] if x else []
+    timestamps = np.linspace(0, max(0, clip.duration-0.1), nb_frames)
+    ptr = 0
+    idx_dessin = -1
+    w, h = clip.size
 
-    os.makedirs(nom_base_images)
+    for i, t_frame in enumerate(timestamps):
+        
+        if show_bg:
+            frame = cv2.cvtColor(clip.get_frame(t_frame), cv2.COLOR_RGB2BGR)
+        else:
+            frame = np.zeros((h, w, 3), dtype=np.uint8) # Fond noir
 
-    nom_extrait = f"{nom_base_images}_clip"
-    prendre_extrait(video_source, t1, t2, nom_extrait)
-    clip = VideoFileClip(nom_extrait + ".mp4")
-
-    x, y, time_extrait = extrait_donnees(t1, t2, x_filtered, y_filtered, time_filtered)
-
-    time = [tt - t1 for tt in time_extrait]
-
-    duree_clip = clip.duration 
-
-    duree_securisee = duree_clip - 0.5
-
-    if duree_securisee < 0:
-        duree_securisee = 0
-
-    timestamps_images = np.linspace(0, duree_securisee, nb_frames, endpoint=True)
-
-    data_idx_pointer = 0
-
-    for i, t_frame in enumerate(timestamps_images):
-        t_frame = timestamps_images[i] 
-
-        frame = clip.get_frame(t_frame)
-        frame = cv2.cvtColor(frame, cv2.COLOR_RGB2BGR)
-
-        current_data_idx = -1
-        while data_idx_pointer < len(time) and time[data_idx_pointer] <= t_frame:
-            current_data_idx = data_idx_pointer 
-            data_idx_pointer += 1 
-
-        if current_data_idx == -1 or t_frame < time[0]:
-            nom_image = os.path.join(nom_base_images, f"frame_{i+1:03d}.png")
-            cv2.imwrite(nom_image, frame)
-            print(f"Image sauvegardée (avant data): {nom_image} (t={t_frame:.2f}s)")
-            continue 
-
-        points_to_draw = [(int(x[j]), int(y[j])) for j in range(current_data_idx + 1)]
-
-        if len(points_to_draw) > 1:
-            for j in range(1, len(points_to_draw)):
-                alpha = j / len(points_to_draw)
-                g = int(255 * alpha) 
-                cv2.line(frame, points_to_draw[j-1], points_to_draw[j], (255, g, 0), 4)
-
-        x_t, y_t = points_to_draw[-1]
-        cv2.circle(frame, (x_t, y_t), 8, (255, 255, 0), -1)
-
-        nom_image = os.path.join(nom_base_images, f"frame_{i+1:03d}.png")
-
-        cv2.imwrite(nom_image, frame)
-        print(f"Image sauvegardée : {nom_image} (correspondant à t={t_frame:.2f}s)")
-
+        if time_vals:
+            while ptr < len(time_vals) and time_vals[ptr] <= t_frame:
+                ptr += 1
+            current_valid_idx = ptr - 1
+            if current_valid_idx >= 0 :
+                idx_dessin = current_valid_idx
+            if idx_dessin >= 0:
+                if mode == "parcours":
+                    pts = [(int(x[j]), int(y[j])) for j in range(idx_dessin + 1)]
+                    for j in range(1, len(pts)):
+                        cv2.line(frame, pts[j-1], pts[j], (255, int(255*(j/len(pts))), 0), 4)
+                    cv2.circle(frame, pts[-1], 8, (255, 255, 0), -1)
+                else:
+                    cv2.circle(frame, (int(x[idx_dessin]), int(y[idx_dessin])), 8, (255, 255, 0), -1)
+        
+        cv2.imwrite(os.path.join(dossier_sortie, f"frame_{i+1:03d}.png"), frame)
+        print(f"      Image {i+1}/{nb_frames} OK")
     clip.close()
-
-    print(f"\nTerminé. {nb_frames} images ont été générées avec le préfixe '{nom_base_images}'.")
-
-
-#Génère le nombre d'images demandé entre t1 et t2 avec le point du regard à l'instant t de l'image
-def generer_images_points(video_source, t1, t2, nb_frames, nom_base_images, x_filtered, y_filtered, time_filtered):
-
-    os.makedirs(nom_base_images)
-
-    nom_extrait = f"{nom_base_images}_clip"
-    prendre_extrait(video_source, t1, t2, nom_extrait)
-    clip = VideoFileClip(nom_extrait + ".mp4")
-
-    x, y, time_extrait = extrait_donnees(t1, t2, x_filtered, y_filtered, time_filtered)
-
-    time = [tt - t1 for tt in time_extrait]
-
-    duree_clip = clip.duration 
-
-    duree_securisee = duree_clip - 0.5
-
-    if duree_securisee < 0:
-        duree_securisee = 0
-
-    timestamps_images = np.linspace(0, duree_securisee, nb_frames, endpoint=True)
-
-    data_idx_pointer = 0
-
-    for i, t_frame in enumerate(timestamps_images):
-        t_frame = timestamps_images[i] 
-
-        frame = clip.get_frame(t_frame)
-        frame = cv2.cvtColor(frame, cv2.COLOR_RGB2BGR)
-
-        current_data_idx = -1
-        while data_idx_pointer < len(time) and time[data_idx_pointer] <= t_frame:
-            current_data_idx = data_idx_pointer 
-            data_idx_pointer += 1 
-
-        if current_data_idx == -1 or t_frame < time[0]:
-            nom_image = os.path.join(nom_base_images, f"frame_{i+1:03d}.png")
-            cv2.imwrite(nom_image, frame)
-            print(f"Image sauvegardée (avant data): {nom_image} (t={t_frame:.2f}s)")
-            continue
-
-        x_t = int(x[current_data_idx])
-        y_t = int(y[current_data_idx])
-
-        cv2.circle(frame, (x_t, y_t), 8, (255, 255, 0), -1)
-
-        nom_image = os.path.join(nom_base_images, f"frame_{i+1:03d}.png")
-
-        cv2.imwrite(nom_image, frame)
-        print(f"Image sauvegardée : {nom_image} (correspondant à t={t_frame:.2f}s)")
-
-    clip.close()
-
-    print(f"\nTerminé. {nb_frames} images ont été générées avec le préfixe '{nom_base_images}'.")
-
-#Demande un float à l'utilisateur
-def ask_float(prompt):
-    while True:
-        try:
-            return float(input(prompt))
-        except ValueError:
-            print("Erreur : Veuillez entrer un nombre (ex: 5.0).")
-
-#Demande un int à l'utilisateur
-def ask_int(prompt, default=None):
-    while True:
-        val = input(prompt)
-        if not val and default is not None:
-            return default
-        try:
-            return int(val)
-        except ValueError:
-            print("Erreur : Veuillez entrer un nombre entier.")
-
-#Demande une chaîne non vide
-def ask_string(prompt):
-    while True:
-        val = input(prompt)
-        if val:
-            return val
-        print("Erreur : Ce champ ne peut pas être vide.")
-
-
-def main():
-    parser = argparse.ArgumentParser(description="Outil interactif d'analyse Eye-Tracking ProTech.")
+    try: os.remove(chemin_temp)
+    except: pass
     
-    parser.add_argument("tsv_file", help="Chemin vers le fichier de données .tsv")
-    parser.add_argument("video_file", help="Chemin vers le fichier vidéo .mp4")
+# ---------------------------------------------------------
+# Interface utilisateur
+# ---------------------------------------------------------
+
+#Parcours le dossier contenant le code pour trouver tous les fichiers tsv.
+def choisir_tsv():
+    fichier = filedialog.askopenfilename(filetypes=[("TSV Files", "*.tsv"), ("All Files", "*.*")])
+    if fichier:
+        var_tsv_path.set(fichier)
+
+#Parcours le dossier contenant le code pour trouver tous les fichiers mp4.
+def choisir_video():
+    fichier = filedialog.askopenfilename(filetypes=[("MP4 Files", "*.mp4"), ("All Files", "*.*")])
+    if fichier:
+        var_video_path.set(fichier)
+
+#Lancement du traitement
+def lancer_traitement():
+    threading.Thread(target=traitement_background, daemon=True).start()
+
+#Interface qui intéragit avec l'utilisateur.
+def traitement_background():
+    tsv = var_tsv_path.get()
+    video = var_video_path.get()
+    dossier_sortie = entry_name.get().strip()
+    avec_fond = var_bg.get()
     
-    args = parser.parse_args()
-
-    fichier_tsv = args.tsv_file
-    video_path = args.video_file
-
-    # 2. VÉRIFICATION DES FICHIERS
-    if not os.path.exists(fichier_tsv):
-        print(f"Erreur: Le fichier TSV '{fichier_tsv}' est introuvable.")
+    if not tsv or not video:
+        messagebox.showwarning("Attention", "Il faut choisir les fichiers TSV et Vidéo.")
         return
-    if not os.path.exists(video_path):
-        print(f"Erreur: Le fichier vidéo '{video_path}' est introuvable.")
+    if not dossier_sortie:
+        messagebox.showwarning("Attention", "Donnez un nom au dossier de sortie.")
         return
-
-    print(f"Fichier TSV chargé : {fichier_tsv}")
-    print(f"Fichier Vidéo chargé : {video_path}")
-
-    # 3. MENU INTERACTIF
-    print("\n--- Menu ProTech ---")
-    print("Quelle action souhaitez-vous effectuer ?")
-    print("  1: Extraire un clip vidéo (extrait)")
-    print("  2: Générer une vidéo avec tracé (video_chemin)")
-    print("  3: Générer des images avec tracé (images_parcours)")
-    print("  4: Générer des images avec points (images_points)")
-
-    action_choice = ""
-    while action_choice not in ["1", "2", "3", "4"]:
-        action_choice = input("Votre choix (1-4) : ")
-
-    actions_map = {
-        "1": "extrait",
-        "2": "video_chemin",
-        "3": "images_parcours",
-        "4": "images_points"
-    }
-    action = actions_map[action_choice]
-
-    # 4. DEMANDE DES PARAMÈTRES
-    print("\nVeuillez entrer les paramètres :")
-    t_start = ask_float("  Temps de début (en secondes) : ")
-    t_end = ask_float("  Temps de fin (en secondes) : ")
-    output_name = ask_string("  Nom du fichier/dossier de sortie : ")
-    
-    nb_frames = 10 # Valeur par défaut
-    if action in ["images_parcours", "images_points"]:
-        nb_frames = ask_int(f"  Nombre d'images (par défaut: {nb_frames}) : ", default=nb_frames)
-
-    if action == "extrait":
-        print(f"\nLancement de l'action : {action}...")
-        prendre_extrait(video_path, t_start, t_end, output_name)
-        print("Terminé.")
-        return
-
-    # Pour les autres actions, on charge et nettoie les données
-    print(f"\nTraitement du fichier TSV...")
-    fichier_csv = os.path.splitext(fichier_tsv)[0] + ".csv"
     
     try:
-        df = pd.read_csv(fichier_tsv, sep='\t', comment='#')
-        df.to_csv(fichier_csv, index=False)
-    except Exception as e:
-        print(f"Erreur lors de la lecture ou conversion du TSV : {e}")
+        t1 = float(entry_start.get().replace(',', '.'))
+        t2 = float(entry_end.get().replace(',', '.'))
+        mode_image = var_image.get()
+        val_image_str = entry_frames.get().replace(',', '.') 
+        
+        if mode_image == "i":
+            nb_imgs = int(float(val_image_str)) 
+            if nb_imgs <= 0:
+                messagebox.showerror("Erreur", "Le nombre d'images doit être > 0.")
+                return
+        else:
+            freq = float(val_image_str)
+            duree = t2 - t1
+            nb_imgs = int(round(duree * freq)) 
+            if nb_imgs <= 0:
+                messagebox.showerror("Erreur", "La fréquence est trop faible ou la durée trop courte (Durée < 1s ou Fréquence < 1fps).")
+                return
+    except ValueError:
+        messagebox.showerror("Erreur", "Les valeurs de temps/fréquence ne sont pas valides.")
         return
 
-    gaze2dx = Colonne(fichier_csv, 'Gaze2dX')
-    gaze2dy = Colonne(fichier_csv, 'Gaze2dY')
-    gaze_class = Colonne(fichier_csv, 'GazeClass')
-    MediaTimeStamp = Colonne(fichier_csv, 'MediaTimeStamp')
+    btn_run.config(state="disabled")
+    print("\n=== DÉMARRAGE DU TRAITEMENT ===")
+
+    try:
+        if not os.path.exists(dossier_sortie):
+            os.makedirs(dossier_sortie)
+            print(f"Dossier créé : {dossier_sortie}")
+        else:
+            print(f"Dossier existant : {dossier_sortie}")
+
+        choix = var_action.get()
+        df_global = None
+        x_filt, y_filt, t_filt = [], [], []
+
+        if choix != "1":
+            df_global = pd.read_csv(tsv, sep='\t', comment='#')
+            
+            nom_full = os.path.join(dossier_sortie, f"{dossier_sortie}_FULL.csv")
+            df_global.to_csv(nom_full, index=False, sep=';')
+            print(f" -> Fichier extrait sauvegardé : {nom_full}")
+
+            gaze2dx = df_global.get('Gaze2dX', pd.Series()).tolist()
+            gaze2dy = df_global.get('Gaze2dY', pd.Series()).tolist()
+            media_ts = df_global.get('MediaTimeStamp', pd.Series()).tolist()
+            gaze_cls = df_global.get('GazeClass', pd.Series()).tolist()
+            
+            if not gaze_cls and gaze2dx: gaze_cls = ['F'] * len(gaze2dx)
+            
+            x_filt, y_filt, t_filt = Nettoyage(gaze2dx, gaze2dy, media_ts, gaze_cls)
+
+        if choix == "1":
+            prendre_extrait(video, t1, t2, dossier_sortie)
+        elif choix == "2":
+            video_chemin(video, t1, t2, dossier_sortie,  x_filt, y_filt, t_filt)
+        elif choix == "3":
+            generer_images_boucle(video, t1, t2, nb_imgs, dossier_sortie, x_filt, y_filt, t_filt, "parcours", show_bg=avec_fond)
+        elif choix == "4":
+            generer_images_boucle(video, t1, t2, nb_imgs, dossier_sortie, x_filt, y_filt, t_filt, "points", show_bg=avec_fond)
+
+        if df_global is not None:
+            sauvegarder_csv_extrait(df_global, t1, t2, dossier_sortie)
+
+        print("\n=== TERMINÉ AVEC SUCCÈS ===")
+        messagebox.showinfo("Succès", f"Fini ! Vérifiez le dossier : {dossier_sortie}")
+
+    except Exception as e:
+        print(f"ERREUR : {e}")
+        messagebox.showerror("Erreur Critique", str(e))
     
-    x_filtered, y_filtered, time_filtered = Nettoyage(gaze2dx, gaze2dy, MediaTimeStamp, gaze_class)
+    finally:
+        btn_run.config(state="normal")
 
-    # 6. EXÉCUTION DE L'ACTION DEMANDÉE
-    print(f"\nLancement de l'action : {action}...")
-    
-    if action == "video_chemin":
-        print(f"Génération de la vidéo avec tracé : {output_name}_chemin.mp4")
-        video_chemin(video_path, t_start, t_end, output_name, x_filtered, y_filtered, time_filtered)
+# Redirige les affichages dans le journal de l'interface.
+def rediriger_stdout(text):
+    try:
+        log_widget.configure(state='normal')
+        log_widget.insert(tk.END, text)
+        log_widget.see(tk.END)
+        log_widget.configure(state='disabled')
+    except Exception:
+        try:
+            CONSOL_WRITE(text)
+        except Exception:
+            pass
 
-    elif action == "images_parcours":
-        print(f"Génération de {nb_frames} images (parcours) dans le dossier : {output_name}")
-        generer_images_parcours(video_path, t_start, t_end, nb_frames, output_name, x_filtered, y_filtered, time_filtered)
+#Affiche ou non les paramètres spécifique aux images.
+def mise_a_jour_interface():
+    choix = var_action.get()
+    if choix in ["3", "4"]:
+        btn1.grid(row=2, column=0, sticky="w", padx=5)
+        btn2.grid(row=2, column=1, sticky="w", padx=5)
+        entry_frames.grid(row=3, column=0, sticky="w", padx=5)
+        chk_bg.grid(row=4, column=0, columnspan=4, sticky="w", pady=5)
+    else:
+        btn1.grid_remove()
+        btn2.grid_remove()
+        entry_frames.grid_remove()
+        chk_bg.grid_remove()
 
-    elif action == "images_points":
-        print(f"Génération de {nb_frames} images (points simples) dans le dossier : {output_name}")
-        generer_images_points(video_path, t_start, t_end, nb_frames, output_name, x_filtered, y_filtered, time_filtered)
-
-    print("Traitement terminé.")
+# ---------------------------------------------------------
+# Programme pincipal permettant l'exécution
+# ---------------------------------------------------------
 
 if __name__ == "__main__":
-    main()
+    root = tk.Tk()
+    root.title("ProTech Eye-Tracking")
+    root.geometry("600x750")
+    
+    style = ttk.Style()
+    style.theme_use('clam')
+
+    var_tsv_path = tk.StringVar()
+    var_video_path = tk.StringVar()
+    var_action = tk.StringVar(value="1")
+    var_bg = tk.BooleanVar(value=True)
+    var_image = tk.StringVar(value="i")
+
+    # --- BLOC 1 : Choix des fichiers ---
+    frame_files = ttk.LabelFrame(root, text="1. Fichiers", padding=10)
+    frame_files.pack(fill="x", padx=10, pady=5)
+
+    ttk.Button(frame_files, text="Choisir TSV", command=choisir_tsv).grid(row=0, column=0, padx=5, pady=5)
+    ttk.Label(frame_files, textvariable=var_tsv_path, wraplength=400).grid(row=0, column=1, sticky="w")
+
+    ttk.Button(frame_files, text="Choisir MP4", command=choisir_video).grid(row=1, column=0, padx=5, pady=5)
+    ttk.Label(frame_files, textvariable=var_video_path, wraplength=400).grid(row=1, column=1, sticky="w")
+
+    # --- BLOC 2 : Choix de l'action ---
+    frame_action = ttk.LabelFrame(root, text="2. Action", padding=10)
+    frame_action.pack(fill="x", padx=10, pady=5)
+
+    ttk.Radiobutton(frame_action, text="1. Couper vidéo (simple)", variable=var_action, value="1", command=mise_a_jour_interface).pack(anchor="w")
+    ttk.Radiobutton(frame_action, text="2. Vidéo avec tracé", variable=var_action, value="2", command=mise_a_jour_interface).pack(anchor="w")
+    ttk.Radiobutton(frame_action, text="3. Images avec tracé", variable=var_action, value="3", command=mise_a_jour_interface).pack(anchor="w")
+    ttk.Radiobutton(frame_action, text="4. Images avec point", variable=var_action, value="4", command=mise_a_jour_interface).pack(anchor="w")
+
+
+    # --- BLOC 3 : Choix des paramètres ---
+    frame_params = ttk.LabelFrame(root, text="3. Paramètres", padding=10)
+    frame_params.pack(fill="x", padx=10, pady=5)
+
+    ttk.Label(frame_params, text="Début (s) :").grid(row=0, column=0, sticky="w")
+    entry_start = ttk.Entry(frame_params, width=10)
+    entry_start.grid(row=0, column=1, padx=5, sticky="w")
+
+    ttk.Label(frame_params, text="Fin (s) :").grid(row=0, column=2, sticky="w")
+    entry_end = ttk.Entry(frame_params, width=10)
+    entry_end.grid(row=0, column=3, padx=5, sticky="w")
+
+    ttk.Label(frame_params, text="Nom Dossier :").grid(row=1, column=0, sticky="w", pady=10)
+    entry_name = ttk.Entry(frame_params, width=30)
+    entry_name.grid(row=1, column=1, columnspan=3, sticky="w")
+    
+    btn1 = ttk.Radiobutton(frame_params, text="Nombre d'images", variable=var_image, value="i", command=mise_a_jour_interface)
+    btn2 = ttk.Radiobutton(frame_params, text="Fréquence (images par seconde)", variable=var_image, value="f", command=mise_a_jour_interface)
+
+    entry_frames = ttk.Entry(frame_params, width=10)
+    entry_frames.insert(0, "10")
+
+    chk_bg = ttk.Checkbutton(frame_params, text="Afficher l'image en fond", variable=var_bg)
+
+    # --- BLOC 4 : Exécution et journal ---
+    btn_run = ttk.Button(root, text="▶ LANCER", command=lancer_traitement)
+    btn_run.pack(fill="x", padx=20, pady=10)
+
+    frame_log = ttk.LabelFrame(root, text="Journal", padding=10)
+    frame_log.pack(fill="both", expand=True, padx=10, pady=5)
+    
+    log_widget = scrolledtext.ScrolledText(frame_log, height=8, state='disabled')
+    log_widget.pack(fill="both", expand=True)
+
+    sys.stdout.write = rediriger_stdout
+    sys.stdout.flush = lambda: None 
+
+    mise_a_jour_interface()
+
+    sys.stdout.write = sys.__stdout__.write
+
+    root.mainloop()
