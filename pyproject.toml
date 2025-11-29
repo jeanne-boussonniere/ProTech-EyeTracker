@@ -9,15 +9,45 @@ packages = [
 ]
 
 [tool.poetry.dependencies]
-python = "^3.10" # Assurez-vous d'avoir Python 3.10 ou plus
+python = "^3.10"
 
 pandas = "*"
 openpyxl = "*"
 moviepy = "*"
-opencv-python = "*" 
+opencv-python = "*"
 numpy = "*"
-
 
 [build-system]
 requires = ["poetry-core"]
 build-backend = "poetry.core.masonry.api"
+
+[dependency-groups]
+dev = [
+    "pylint (>=4.0.3,<5.0.0)",
+    "pre-commit (>=4.5.0,<5.0.0)"
+]
+
+[tool.pylint.main]
+extension-pkg-allow-list = ["cv2"] # Pour que Pylint reconnaisse cv2
+
+[tool.pylint.format]
+max-line-length = "150"
+
+[tool.pylint.typecheck]
+generated-members = ["cv2.*"] # Pour que Pylint ignore les erreurs sur cv2
+
+
+#Liste des erreurs que pylint va ignorer
+[tool.pylint.messages_control]
+disable = [
+    "C0114", # Pas besoin de la doc en haut du fichier
+    "C0116", # Pas besoin de doc pour les fonctions
+    "R0914", # Trop de variables locales
+    "R0913", # Autorise des fonctions avec 7-10 arguments
+    "R0917", # Idem
+    "E0606", # Permet d'utiliser des variables avant qu'elles soient assignées
+    "W0718", # Ignore except : Exception
+    "R0912", # Accepte que la fonction principale soit complexe
+    "R0915", # Accepte qu'une fonction soit longue
+    "W1203", # Ignore les f-strings dans les logs
+]
