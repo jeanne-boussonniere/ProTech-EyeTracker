@@ -9,10 +9,11 @@ import cv2
 import numpy as np
 from moviepy import VideoFileClip, CompositeVideoClip, VideoClip
 
+#Configuration des loggings
 logging.basicConfig(
-    level=logging.DEBUG,  # On capture tout (du plus bas au plus haut)
-    format='%(levelname)s : %(message)s', # Format : Date - Niveau - Message
-    stream=sys.stdout # IMPORTANT : On envoie les logs vers stdout pour que ton interface les affiche
+    level=logging.DEBUG,
+    format='%(levelname)s : %(message)s',
+    stream=sys.stdout
 )
 
 CONSOL_WRITE = sys.__stdout__.write

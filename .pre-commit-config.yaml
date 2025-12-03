@@ -1,13 +1,13 @@
 repos:
-  # 1. Les outils de base (nettoyage automatique)
+  # Nettoyage automatique
   - repo: https://github.com/pre-commit/pre-commit-hooks
     rev: v4.5.0
     hooks:
-      - id: trailing-whitespace   # Supprime les espaces inutiles en fin de ligne (Ton erreur C0303 !)
+      - id: trailing-whitespace   # Supprime les espaces inutiles en fin de ligne
       - id: end-of-file-fixer     # S'assure qu'il y a une ligne vide à la fin du fichier
       - id: check-yaml            # Vérifie que ce fichier config est valide
 
-  # 2. Pylint (Analyse statique)
+  # Pylint
   - repo: local
     hooks:
       - id: pylint
@@ -15,4 +15,4 @@ repos:
         entry: poetry run pylint
         language: system
         types: [python]
-        args: ["code.py"]         # On cible UNIQUEMENT ton fichier principal
+        args: ["protech/code.py"]
