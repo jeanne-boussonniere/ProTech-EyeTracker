@@ -2,14 +2,12 @@ Fichiers de données sources et générés
 
 *.tsv
 *.mp4
-
-Dossiers de sortie générés par le script
-
-**/
+*.png
+*.csv
 
 Fichiers temporaires Python
 
-pycache/
+__pycache__/
 *.pyc
 *.pyo
 *.pyd
@@ -17,3 +15,7 @@ pycache/
 Environnement virtuel Poetry
 
 .venv/
+
+Autres Fichiers
+
+.pytest_cache/
