@@ -1,6 +1,6 @@
-import logging
 import os
 import sys
+import logging
 import threading
 import tkinter as tk
 from tkinter import filedialog, messagebox, scrolledtext, ttk
@@ -8,6 +8,13 @@ import pandas as pd
 import cv2
 import numpy as np
 from moviepy import VideoFileClip, CompositeVideoClip, VideoClip
+
+#Chemin de ffmpeg.exe pour pouvoir utiliser pdoc (car moviepy le demande)
+CHEMIN_FFMPEG = fr"C:\Users\jeann\AppData\Local\Programs\Python\Python313\Lib\site-packages\imageio_ffmpeg\binaries\ffmpeg.exe"
+if os.path.exists(CHEMIN_FFMPEG):
+    os.environ["IMAGEIO_FFMPEG_EXE"] = CHEMIN_FFMPEG
+else:
+    print(f"ATTENTION : FFmpeg non trouvé au chemin : {CHEMIN_FFMPEG}")
 
 #Configuration des loggings
 logging.basicConfig(
@@ -17,9 +24,27 @@ logging.basicConfig(
 )
 
 CONSOL_WRITE = sys.__stdout__.write
+"""
+Sauvegarde de la fonction d'écriture standard du système (Terminal).
 
-# Garde uniquement les données utiles (les points de fixation)
+Cette variable conserve une référence vers la sortie console d'origine.
+Elle permet d'afficher des messages de débogage dans la "vraie" console noire,
+même après que `sys.stdout` a été redirigé vers l'interface graphique (Tkinter).
+"""
+
+# ---------------------------------------------------------
+# Traitement des données
+# ---------------------------------------------------------
+
 def nettoyage (gaze2dx,gaze2dy,media_time_stamp, gaze_class):
+    """
+    L'objectif est de supprimer le bruit et les données invalides (clignements, perte de tracking).\n
+        • Entrées : Listes brutes Gaze2dX, Gaze2dY, MediaTimeStamp, GazeClass.\n
+        • Logique : La fonction itère sur les index. Elle conserve uniquement les points où GazeClass \n
+                    est valide (différent de nan, None ou vide).\n
+        • Sortie : Listes filtrées et synchronisées x_filtered, y_filtered, time_filtered.
+    """
+
     min_len = min(len(gaze2dx), len(gaze2dy), len(media_time_stamp), len(gaze_class))
     fixations_idx = [i for i in range(min_len) if str(gaze_class[i]).strip() not in ['nan', '', 'None']]
     fixation_gaze2dx = [gaze2dx[i] for i in fixations_idx]
@@ -38,32 +63,45 @@ def nettoyage (gaze2dx,gaze2dy,media_time_stamp, gaze_class):
     return gaze2dx_filtered, gaze2dy_filtered, time_stamp_filtered
 
 
-# Trouve l'indice de la première valeur supérieure à la valeur donnée
 def premier_indice(lst, value):
+    """
+    Trouve l'index de la première valeur ≥ value.\n
+        • Entrées : Une liste triée (lst), une valeur seuil (value). \n
+        • Logique : Parcourt la liste du début à la fin. \n
+                    Retourne l'index du premier élément qui est supérieur ou égal à la valeur seuil. \n
+        • Sorties : Un entier (index).
+    """
+
     for i, v in enumerate(lst):
         if float(v) >= value:
             return i
     return None
 
 
-# Trouve l'indice de la dernière valeur inférieure à la valeur donnée
 def dernier_indice(lst, value):
+    """
+    Trouve l'index de la denière valeur ≤ value.\n
+        • Entrées : Une liste triée (lst), une valeur seuil (value). \n
+        • Logique : Parcourt la liste du début à la fin. \n
+                    Retourne l'index du denier élément qui est inférieur ou égal à la valeur seuil. \n
+        • Sorties : Un entier (index).
+    """
+
     for i in reversed(range(len(lst))):
         if float(lst[i]) <= value:
             return i
     return None
 
 
-# Prend un extrait d'une vidéo selon les timecodes donnés
-def prendre_extrait (video,t1,t2,dossier_sortie):
-    chemin_sortie = os.path.join(dossier_sortie, f"{dossier_sortie}.mp4")
-    clip = VideoFileClip(video).subclipped(t1, t2)
-    clip.write_videofile(chemin_sortie, codec="libx264", audio_codec="aac", logger=None)
-    clip.close()
-
-
-# Extrait les données correspondant à un extrait de vidéo entre t1 et t2
 def extrait_donnees_utiles (t1, t2, x_filtered, y_filtered, time_filtered) :
+    """
+    Cette fonction gère la synchronisation entre le temps absolu du fichier TSV et l'intervalle demandé par l'utilisateur (t1 à t2).\n
+        • Entrées : Temps début (t1), temps fin (t2), listes filtrées (x,y,t).\n
+        • Logique : Appelle premier_indice pour t1 et dernier_indice pour t2. \n
+                    Découpe les listes Python entre ces deux bornes.\n
+        • Sorties : Sous-listes extraites correspondant à l'intervalle temporel.
+    """
+
     if not time_filtered:
         return [], [], []
 
@@ -79,9 +117,15 @@ def extrait_donnees_utiles (t1, t2, x_filtered, y_filtered, time_filtered) :
 
     return x_extrait, y_extrait, time_extrait
 
-# Sauvegarde au format CSV les données entre t1 et t2.
+
 def sauvegarder_csv_extrait(df, t1, t2, dossier_sortie):
-    """Sauvegarde le CSV filtré dans le dossier de sortie."""
+    """
+    Exporte les données filtrées dans un fichier CSV distinct pour faciliter l'analyse statistique externe.\n
+        • Entrées : DataFrame global (df), t1, t2, dossier de sortie.\n
+        • Logique : Applique un masque booléen sur la colonne 'MediaTimeStamp' pour ne garder \n
+                    que les lignes entre t1 et t2.\n
+        • Sortie : Fichier _Extrait.csv écrit sur le disque.
+    """
 
     if 'MediaTimeStamp' not in df.columns:
         logging.error("Colonne 'MediaTimeStamp' introuvable.")
@@ -99,9 +143,34 @@ def sauvegarder_csv_extrait(df, t1, t2, dossier_sortie):
     df_extrait.to_csv(nom_fichier_final, index=False, sep=';')
     logging.info(f" -> Fichier extrait sauvegardé : {nom_fichier_final}")
 
+# ---------------------------------------------------------
+# Traitement vidéos et images
+# ---------------------------------------------------------
 
-# Trace le chemin du regard pour un extrait de vidéo entre t1 et t2
+def prendre_extrait (video,t1,t2,dossier_sortie):
+    """
+    Génère un fichier vidéo coupé selon les temps donnés, sans modification graphique ni réencodage inutile.\n
+        • Entrées : Chemin vidéo source, t1, t2, dossier de sortie.\n
+        • Logique : Utilise VideoFileClip.subclipped(t1,t2) pour couper la vidéo.\n
+        • Sortie : Fichier .mp4 écrit sur le disque.
+    """
+
+    chemin_sortie = os.path.join(dossier_sortie, f"{dossier_sortie}.mp4")
+    clip = VideoFileClip(video).subclipped(t1, t2)
+    clip.write_videofile(chemin_sortie, codec="libx264", audio_codec="aac", logger=None)
+    clip.close()
+
+
 def video_chemin (video, t1, t2, dossier_sortie, x_filtered, y_filtered, time_filtered) :
+    """
+    Crée une nouvelle vidéo superposant le tracé évolutif du regard (chemin coloré) sur l'extrait original.\n
+        • Entrées : Chemin vidéo, t1, t2, dossier sortie, listes de données nettoyées.\n
+        • Logique : Définit une fonction interne make_frame(t). Pour chaque instant t, calcule l'index \n
+                    des données correspondant, dessine l'historique des points sur la frame avec un \n
+                    dégradé de couleur et renvoie l'image modifiée.\n
+        • Sortie : Fichier vidéo _chemin.mp4 écrit sur le disque.
+    """
+
     prendre_extrait (video, t1, t2, dossier_sortie)
     chemin_brut = os.path.join(dossier_sortie, f"{dossier_sortie}.mp4")
     x, y, time_extrait = extrait_donnees_utiles(t1, t2, x_filtered, y_filtered, time_filtered)
@@ -111,8 +180,6 @@ def video_chemin (video, t1, t2, dossier_sortie, x_filtered, y_filtered, time_fi
 
     current_idx = [0]
 
-    # Dessine, pour un instant t donné, l'image vidéo correspondante avec au choix :
-    # le tracé précédent complet ou le point de fixation actuel.
     def make_frame(t):
         frame = clip.get_frame(t)
         frame = cv2.cvtColor(frame, cv2.COLOR_RGB2BGR)
@@ -146,10 +213,17 @@ def video_chemin (video, t1, t2, dossier_sortie, x_filtered, y_filtered, time_fi
     logging.info(f" -> Vidéo finale prête : {chemin_final}")
 
 
-# Génère le nombre d'images demandé entre t1 et t2 avec le tracé du regard
-# jusqu'à l'instant t de l'image ou la position du regard à l'instant t
-def generer_images_boucle(video_source, t1, t2, nb_frames, dossier_sortie, x_filtered, y_filtered, time_filtered, mode="parcours", show_bg=True):
-    prendre_extrait(video_source, t1, t2, dossier_sortie)
+def generer_images_boucle(video, t1, t2, nb_frames, dossier_sortie, x_filtered, y_filtered, time_filtered, mode="parcours", show_bg=True):
+    """
+    Produit une séquence d'images fixes basées sur un échantillonnage temporel régulier.\n
+        • Entrées : Vidéo, temps, nombre d'images, dossier de sortie, variables nettoyées,\n
+                    options (mode tracé/point, fond noir/image).\n
+        • Logique : Calcule N timestamps équidistants. Boucle sur dessus, extrait l'image correspondante\n
+                    (ou crée une image noire), dessine les données eye-tracking synchrones et sauvegarde.\n
+        • Sortie : Série de fichiers frame_XXX.png écrits sur le disque.
+    """
+
+    prendre_extrait(video, t1, t2, dossier_sortie)
     chemin_temp = os.path.join(dossier_sortie, f"{dossier_sortie}.mp4")
 
     clip = VideoFileClip(chemin_temp)
@@ -194,24 +268,49 @@ def generer_images_boucle(video_source, t1, t2, nb_frames, dossier_sortie, x_fil
 # Interface utilisateur
 # ---------------------------------------------------------
 
-# Parcours le dossier contenant le code pour trouver tous les fichiers tsv.
 def choisir_tsv():
+    """
+    Ouvre l'explorateur de fichiers du système pour permettre la sélection des fichiers de données.\n
+        • Logique : Déclenche l'ouverture de la fenêtre de sélection native du système en appliquant \n
+                    un filtre sur les extensions (.tsv).\n
+        • Sortie : Met à jour la variable Tkinter stockant le chemin du fichier.
+    """
+
     fichier = filedialog.askopenfilename(filetypes=[("TSV Files", "*.tsv"), ("All Files", "*.*")])
     if fichier:
         var_tsv_path.set(fichier)
 
-# Parcours le dossier contenant le code pour trouver tous les fichiers mp4.
 def choisir_video():
+    """
+    Ouvrent l'explorateur de fichiers du système pour permettre la sélection des fichiers vidéos.\n
+        • Logique : Déclenche l'ouverture de la fenêtre de sélection native du système en appliquant \n
+                    un filtre sur les extensions (.mp4).\n
+        • Sortie : Met à jour la variable Tkinter stockant le chemin du fichier.
+    """
+
     fichier = filedialog.askopenfilename(filetypes=[("MP4 Files", "*.mp4"), ("All Files", "*.*")])
     if fichier:
         var_video_path.set(fichier)
 
-# Lancement du traitement
 def lancer_traitement():
+    """
+    Initialise le processus de calcul dans un fil d'exécution séparé pour maintenir la fluidité de l'interface.\n
+        • Logique : Démarre un nouveau Thread pointant vers la fonction traitement_background \n
+                    pour ne pas figer l'interface.
+    """
+
     threading.Thread(target=traitement_background, daemon=True).start()
 
-# Interface qui intéragit avec l'utilisateur.
 def traitement_background():
+    """
+    Fonction principale du backend qui orchestre la logique métier, la gestion des erreurs et les appels aux modules de traitement.\n
+        • Entrées : Variables globales de l'interface (chemins, temps, options).\n
+        • Logique : Orchestre tout le processus : vérification des champs, création dossier, \n
+                    chargement CSV, appel des fonctions de traitement vidéo/image selon le mode choisi, \n
+                    gestion des erreurs.\n
+        • Sortie : Popup messagebox (Succès ou Erreur) et fichiers générés.
+    """
+
     tsv = var_tsv_path.get()
     video = var_video_path.get()
     dossier_sortie = entry_name.get().strip()
@@ -303,8 +402,15 @@ def traitement_background():
     finally:
         btn_run.config(state="normal")
 
-# Redirige les affichages dans le journal de l'interface.
 def rediriger_stdout(text):
+    """
+    Capture les messages de la console pour les afficher en temps réel dans la zone de journal de l'application.\n
+        • Entrées : Texte envoyé vers la console.\n
+        • Logique : Insère le texte dans le widget ScrolledText de l'interface graphique et force \n
+                    le défilement vers le bas.\n
+        • Sortie : Affichage visuel dans la zone "Journal".
+    """
+
     try:
         log_widget.configure(state='normal')
         log_widget.insert(tk.END, text)
@@ -316,8 +422,15 @@ def rediriger_stdout(text):
         except Exception:
             pass
 
-# Affiche ou non les paramètres spécifique aux images.
 def mise_a_jour_interface():
+    """
+    Adapte les champs visibles du formulaire en fonction de l'action sélectionnée par l'utilisateur.\n
+        • Entrées : Changement d'état des boutons radio "Action".\n
+        • Logique : Utilise .grid() ou .grid_remove() pour afficher ou cacher les options \n
+                    spécifiques aux images (nombre de frames, fond noir) selon l'action choisie.\n
+        • Sortie : Mise à jour dynamique de la fenêtre.
+    """
+
     choix = var_action.get()
     if choix in ["3", "4"]:
         btn1.grid(row=2, column=0, sticky="w", padx=5)

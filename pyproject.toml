@@ -52,4 +52,5 @@ disable = [
     "R0912", # Accepte que la fonction principale soit complexe
     "R0915", # Accepte qu'une fonction soit longue
     "W1203", # Ignore les f-strings dans les logs
+    "W1309", # Autorise à mettre f devant un chemin
 ]
