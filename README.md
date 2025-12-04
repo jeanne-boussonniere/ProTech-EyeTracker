@@ -9,11 +9,29 @@ Il analyse des données d'eye-tracking (fichiers .tsv) et les synchronise avec u
 - Python (version 3.10+)
 - Poetry
 
-## Note sur les Fichiers de Données
+### Fonctionnalités principales
 
-Les fichiers de données sources (vidéo .mp4 et data.tsv) ne sont pas inclus dans ce dépôt. Vous devez vous assurer qu'ils sont stockés localement sur votre ordinateur avant de pouvoir les sélectionner via l'interface.
+- Nettoyage automatique des données (suppression des clignements et pertes de tracking).
 
-## Installation des Dépendances :
+- Génération de vidéo avec le tracé du chemin du regard.
+
+- Extraction d'images à fréquence régulière ou définie.
+
+- Découpage vidéo simple sans réencodage.
+
+- Export CSV des données nettoyées et filtrées.
+
+## Mise en place du projet
+
+Cloner le projet depuis GitHub vers votre ordinateur en vous plaçant à l'endroit que vous voulez.
+
+`git clone https://github.com/jeanne-boussonniere/ProTech-EyeTracker.git`
+
+### Note sur les Fichiers de Données :
+
+Les fichiers de données sources (vidéo .mp4 et data.tsv) ne sont pas inclus dans ce dépôt. Vous devez vous assurer qu'ils sont stockés localement sur votre ordinateur afin de pouvoir les sélectionner via l'interface.
+
+## Installation des Dépendances
 
 Cette commande va lire le fichier pyproject.toml, créer un environnement virtuel isolé, et installer automatiquement toutes les dépendances (pandas, moviepy, opencv, etc.).
 
@@ -25,7 +43,7 @@ Cette commande va lire le fichier pyproject.toml, créer un environnement virtue
 ` poetry install `
 
 
-## Exécution du Projet :
+## Exécution du Projet
 
 Le script code.py s'exécute via poetry run.
 
@@ -33,7 +51,7 @@ Le script code.py s'exécute via poetry run.
 
 Vous devez d'abord lancer le script :
 
-`poetry run python code.py `
+`poetry run python protech/code.py `
 
 
 **Étape 2 :** Suivre le menu interactif
@@ -41,3 +59,14 @@ Vous devez d'abord lancer le script :
 Une fois le script lancé, il va charger les fichiers et vous présenter une interface :
 
 Suivez simplement les instructions pour choisir vos fichiers, une action, définir les temps de début et de fin, et nommer votre fichier de sortie.
+
+Pour plus de détails sur l'éxécution, référez vous au tutoriel `docs/tutoriel`
+
+## Documentation
+
+Une documentation technique complète du code est disponible.
+Pour la générer ou la consulter, ouvrez le fichier `docs/protech/code.html` dans votre navigateur.
+
+## Licence
+
+Ce projet est sous licence MIT - voir le fichier `LICENSE` pour plus de détails.
