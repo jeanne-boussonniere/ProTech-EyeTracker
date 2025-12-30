@@ -53,4 +53,5 @@ disable = [
     "R0915", # Accepte qu'une fonction soit longue
     "W1203", # Ignore les f-strings dans les logs
     "W1309", # Autorise à mettre f devant un chemin
+    "W0603", # Permet d'utiliser des variables globales
 ]

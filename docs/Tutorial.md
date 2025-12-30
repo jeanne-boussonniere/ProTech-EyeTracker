@@ -39,9 +39,9 @@ Cliquez sur le bouton "Choisir MP4". Sélectionnez vidéo_artisan.mp4.
 
 Dans le cadre "2. Action", nous voulons une série de photos.
 
-Cochez l'option : "4. Images avec point".
+Cochez l'option : "3. Images avec tracé".
 
-**Note :** L'option 1 ne ferait que couper la vidéo sans rien dessiner dessus. L'option 2 dessinerait le tracé du regard sur l'extrait. L'option 3 renverrait une série d'images avec le chemin du regard.
+**Note :** L'option 1 ne ferait que couper la vidéo sans rien dessiner dessus. L'option 2 dessinerait le tracé du regard sur l'extrait. L'option 4 renverrait une série d'images avec la position du regard à chaque frame demandée.
 
 ### **Étape C :** Définir les paramètres
 
@@ -55,9 +55,15 @@ Nom Dossier : Donnez un nom clair, par exemple Analyse_artisan1.
 
 **Important :** C'est le nom du dossier qui sera créé pour ranger tous les résultats.
 
-Sélectionnez si vous souhaitez indiquer le nombre d'images ou la fréquence puis ajoutez en dessous la valeur correspondante.
+Sélectionnez si vous souhaitez indiquer le nombre d'images ou la fréquence puis ajoutez à côté la valeur correspondante.
 
-Cochez si vous voulez que l'image de la vidéo soit en fond ou si vous souhaitez un fond noir.
+Saisissez l'épaisseur que vous souhaitez pour les tracés.
+
+Cochez si vous voulez que l'image de la vidéo soit en fond ou si vous souhaitez un fond de couleur unie. Dans le deuxième cas, choisissez une couleur dans la palette.
+
+Enfin, décidez combien de points antérieurs vous souhaitez garder lors du dessin du parcours.
+
+**Note :** Les options varient en fonction de l'action que vous avez choisie avant car elles ne sont pas nécessaires dans toutes les situations.
 
 ## 4. Génération et Résultat
 

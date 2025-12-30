@@ -3,18 +3,18 @@ import sys
 import logging
 import threading
 import tkinter as tk
-from tkinter import filedialog, messagebox, scrolledtext, ttk
+from tkinter import filedialog, messagebox, scrolledtext, ttk, colorchooser
 import pandas as pd
 import cv2
 import numpy as np
 from moviepy import VideoFileClip, CompositeVideoClip, VideoClip
 
 #Chemin de ffmpeg.exe pour pouvoir utiliser pdoc (car moviepy le demande)
-CHEMIN_FFMPEG = fr"C:\Users\jeann\AppData\Local\Programs\Python\Python313\Lib\site-packages\imageio_ffmpeg\binaries\ffmpeg.exe"
-if os.path.exists(CHEMIN_FFMPEG):
-    os.environ["IMAGEIO_FFMPEG_EXE"] = CHEMIN_FFMPEG
+_CHEMIN_FFMPEG = fr"C:\Users\jeann\AppData\Local\Programs\Python\Python313\Lib\site-packages\imageio_ffmpeg\binaries\ffmpeg.exe"
+if os.path.exists(_CHEMIN_FFMPEG):
+    os.environ["IMAGEIO_FFMPEG_EXE"] = _CHEMIN_FFMPEG
 else:
-    print(f"ATTENTION : FFmpeg non trouvé au chemin : {CHEMIN_FFMPEG}")
+    print(f"ATTENTION : FFmpeg non trouvé au chemin : {_CHEMIN_FFMPEG}")
 
 #Configuration des loggings
 logging.basicConfig(
@@ -31,6 +31,10 @@ Cette variable conserve une référence vers la sortie console d'origine.
 Elle permet d'afficher des messages de débogage dans la "vraie" console noire,
 même après que `sys.stdout` a été redirigé vers l'interface graphique (Tkinter).
 """
+
+# Variables globales pour les couleurs
+bg_color_bgr = (0,0,0)
+trace_color_bgr = (255, 255, 0)
 
 # ---------------------------------------------------------
 # Traitement des données
@@ -140,7 +144,7 @@ def sauvegarder_csv_extrait(df, t1, t2, dossier_sortie):
 
     nom_fichier_final = os.path.join(dossier_sortie, f"{dossier_sortie}_Extrait.csv")
 
-    df_extrait.to_csv(nom_fichier_final, index=False, sep=';')
+    df_extrait.to_csv(nom_fichier_final, index=False, sep=',')
     logging.info(f" -> Fichier extrait sauvegardé : {nom_fichier_final}")
 
 # ---------------------------------------------------------
@@ -161,7 +165,7 @@ def prendre_extrait (video,t1,t2,dossier_sortie):
     clip.close()
 
 
-def video_chemin (video, t1, t2, dossier_sortie, x_filtered, y_filtered, time_filtered) :
+def video_chemin (video, t1, t2, dossier_sortie, x_filtered, y_filtered, time_filtered, epaisseur, trace_color=(255, 255, 0)) :
     """
     Crée une nouvelle vidéo superposant le tracé évolutif du regard (chemin coloré) sur l'extrait original.\n
         • Entrées : Chemin vidéo, t1, t2, dossier sortie, listes de données nettoyées.\n
@@ -174,20 +178,58 @@ def video_chemin (video, t1, t2, dossier_sortie, x_filtered, y_filtered, time_fi
     prendre_extrait (video, t1, t2, dossier_sortie)
     chemin_brut = os.path.join(dossier_sortie, f"{dossier_sortie}.mp4")
     x, y, time_extrait = extrait_donnees_utiles(t1, t2, x_filtered, y_filtered, time_filtered)
-    time = [tt - t1 for tt in time_extrait]
+    if not x:
+        print("ERREUR : Pas de données de regard sur cet intervalle.")
+        return
 
+    time_vals = [tt - t1 for tt in time_extrait]
     clip = VideoFileClip(chemin_brut)
 
+    fps = clip.fps
+    duration = clip.duration
+    total_frames = int(duration * fps)
+
+    donnees_csv = []
+    csv_ptr = 0
+
+    for i in range(total_frames):
+        t_current = i / fps
+
+        while csv_ptr + 1 < len(time_vals) and time_vals[csv_ptr + 1] <= t_current:
+            csv_ptr += 1
+
+        if len(time_vals) > 0 and t_current >= time_vals[0]:
+            donnees_csv.append({
+                "Frame_Index": i + 1,
+                "Video_Time": t_current,
+                "Gaze_Time": time_extrait[csv_ptr],
+                "Gaze2dX": x[csv_ptr],
+                "Gaze2dY": y[csv_ptr]
+            })
+        else:
+            donnees_csv.append({
+                "Frame_Index": i + 1,
+                "Video_Time": t_current,
+                "Gaze_Time": "",
+                "Gaze2dX": "",
+                "Gaze2dY": ""
+            })
+
+    nom_csv_final = os.path.join(dossier_sortie, f"{dossier_sortie}_données_intermédiaires.csv")
+    df_out = pd.DataFrame(donnees_csv)
+    df_out.to_csv(nom_csv_final, index=False, sep=',')
+
     current_idx = [0]
+
 
     def make_frame(t):
         frame = clip.get_frame(t)
         frame = cv2.cvtColor(frame, cv2.COLOR_RGB2BGR)
 
-        while current_idx[0] + 1 < len(time) and time[current_idx[0] + 1] <= t:
+        while current_idx[0] + 1 < len(time_vals) and time_vals[current_idx[0] + 1] <= t:
             current_idx[0] += 1
 
-        if t < time[0]:
+        if t < time_vals[0]:
             frame = cv2.cvtColor(frame, cv2.COLOR_BGR2RGB)
             return frame
 
@@ -195,11 +237,15 @@ def video_chemin (video, t1, t2, dossier_sortie, x_filtered, y_filtered, time_fi
 
         for i in range(1, len(points_to_draw)):
             alpha = i / len(points_to_draw)
-            g = int(255 * alpha)
-            cv2.line(frame, points_to_draw[i-1], points_to_draw[i], (255, g, 0), 4)
+            current_color = (
+                int(trace_color[0] * alpha),
+                int(trace_color[1] * alpha),
+                int(trace_color[2] * alpha)
+            )
+            cv2.line(frame, points_to_draw[i-1], points_to_draw[i], current_color, epaisseur)
 
         x_t, y_t = int(x[(current_idx[0])]), int(y[current_idx[0]])
-        cv2.circle(frame, (x_t, y_t), 8, (255, 255, 0), -1)
+        cv2.circle(frame, (x_t, y_t), epaisseur, trace_color, -1)
 
 
         frame = cv2.cvtColor(frame, cv2.COLOR_BGR2RGB)
@@ -213,7 +259,8 @@ def video_chemin (video, t1, t2, dossier_sortie, x_filtered, y_filtered, time_fi
     logging.info(f" -> Vidéo finale prête : {chemin_final}")
 
 
-def generer_images_boucle(video, t1, t2, nb_frames, dossier_sortie, x_filtered, y_filtered, time_filtered, mode="parcours", show_bg=True):
+def generer_images_boucle(video, t1, t2, nb_frames, dossier_sortie, x_filtered, y_filtered, time_filtered, epaisseur, mode="parcours",
+                          show_bg=True,  history_frames=0, bg_color=(0, 0, 0),trace_color=(255, 255, 0)):
     """
     Produit une séquence d'images fixes basées sur un échantillonnage temporel régulier.\n
         • Entrées : Vidéo, temps, nombre d'images, dossier de sortie, variables nettoyées,\n
@@ -230,39 +277,78 @@ def generer_images_boucle(video, t1, t2, nb_frames, dossier_sortie, x_filtered, 
     x, y, time_extrait = extrait_donnees_utiles(t1, t2, x_filtered, y_filtered, time_filtered)
     time_vals = [tt - t1 for tt in time_extrait] if x else []
     timestamps = np.linspace(0, max(0, clip.duration-0.1), nb_frames)
-    ptr = 0
-    idx_dessin = -1
     w, h = clip.size
+    data_indices = []
+    ptr = 0
+    donnees_csv = []
+
+    for t_frame in timestamps:
+        while ptr < len(time_vals) and time_vals[ptr] <= t_frame:
+            ptr += 1
+        data_indices.append(ptr - 1)
 
     for i, t_frame in enumerate(timestamps):
 
         if show_bg:
-            frame = cv2.cvtColor(clip.get_frame(t_frame), cv2.COLOR_RGB2BGR)
+            try:
+                frame = cv2.cvtColor(clip.get_frame(t_frame), cv2.COLOR_RGB2BGR)
+            except IOError:
+                frame = np.zeros((h, w, 3), dtype=np.uint8)
+                frame[:] = bg_color
         else:
-            frame = np.zeros((h, w, 3), dtype=np.uint8) # Fond noir
+            frame = np.zeros((h, w, 3), dtype=np.uint8)
+            frame[:] = bg_color
 
-        if time_vals:
-            while ptr < len(time_vals) and time_vals[ptr] <= t_frame:
-                ptr += 1
-            current_valid_idx = ptr - 1
-            if current_valid_idx >= 0 :
-                idx_dessin = current_valid_idx
-            if idx_dessin >= 0:
-                if mode == "parcours":
-                    pts = [(int(x[j]), int(y[j])) for j in range(idx_dessin + 1)]
-                    for j in range(1, len(pts)):
-                        cv2.line(frame, pts[j-1], pts[j], (255, int(255*(j/len(pts))), 0), 4)
-                    cv2.circle(frame, pts[-1], 8, (255, 255, 0), -1)
-                else:
-                    cv2.circle(frame, (int(x[idx_dessin]), int(y[idx_dessin])), 8, (255, 255, 0), -1)
+        idx_end_data = data_indices[i]
+
+        if idx_end_data >= 0:
+            donnees_csv.append({
+                "Num_Image": i + 1,
+                "Time": time_extrait[idx_end_data],
+                "Gaze2dX": x[idx_end_data],
+                "Gaze2dY": y[idx_end_data]
+            })
+        else:
+            donnees_csv.append({
+                "Num_Image": i + 1,
+                "Time": t1 + t_frame,
+                "Gaze2dX": "",
+                "Gaze2dY": ""
+            })
+
+        if idx_end_data >= 0:
+            if mode == "parcours":
+                idx_start_data = 0
+                if history_frames > 0:
+                    prev_img_idx = max(0, i - history_frames)
+                    idx_start_data = data_indices[prev_img_idx]
+
+                    idx_start_data = max(0, idx_start_data)
+
+                pts = [(int(x[j]), int(y[j])) for j in range(idx_start_data, idx_end_data + 1)]
+                for j in range(1, len(pts)):
+                    alpha = j / len(pts)
+                    current_color = (
+                        int(trace_color[0] * alpha),
+                        int(trace_color[1] * alpha),
+                        int(trace_color[2] * alpha)
+                    )
+                    cv2.line(frame, pts[j-1], pts[j], current_color, epaisseur)
+
+                if len(pts) > 0:
+                    cv2.circle(frame, pts[-1], epaisseur, trace_color, -1)
+            else:
+                cv2.circle(frame, (int(x[idx_end_data]), int(y[idx_end_data])), epaisseur, trace_color, -1)
 
         cv2.imwrite(os.path.join(dossier_sortie, f"frame_{i+1:03d}.png"), frame)
         logging.debug(f"      Image {i+1}/{nb_frames} OK")
+
+    nom_csv_final = os.path.join(dossier_sortie, f"{dossier_sortie}_données_intermédiaires.csv")
+    df_out = pd.DataFrame(donnees_csv)
+    df_out.to_csv(nom_csv_final, index=False, sep=',')
+    logging.info(f" -> CSV des images généré : {nom_csv_final}")
+
     clip.close()
-    try:
-        os.remove(chemin_temp)
-    except OSError:
-        pass
 
 # ---------------------------------------------------------
 # Interface utilisateur
@@ -282,7 +368,7 @@ def choisir_tsv():
 
 def choisir_video():
     """
-    Ouvrent l'explorateur de fichiers du système pour permettre la sélection des fichiers vidéos.\n
+    Ouvre l'explorateur de fichiers du système pour permettre la sélection des fichiers vidéos.\n
         • Logique : Déclenche l'ouverture de la fenêtre de sélection native du système en appliquant \n
                     un filtre sur les extensions (.mp4).\n
         • Sortie : Met à jour la variable Tkinter stockant le chemin du fichier.
@@ -291,6 +377,39 @@ def choisir_video():
     fichier = filedialog.askopenfilename(filetypes=[("MP4 Files", "*.mp4"), ("All Files", "*.*")])
     if fichier:
         var_video_path.set(fichier)
+
+def choisir_couleur_trace():
+    """
+    Ouvre la palette de couleurs du système pour permettre à l'utilisateur de personnaliser l'apparence du rendu (couleur du tracé)\n
+        • Logique : Déclenche l'ouverture du sélecteur de couleur natif (colorchooser). \n
+                    Si une couleur est validée, elle est convertie du format RGB (interface) \n
+                    vers le format BGR (utilisé par le moteur vidéo OpenCV).\n
+        • Sortie : Met à jour la variable globale correspondante (bg_color_bgr ou trace_color_bgr)\n
+                    et actualise le texte du bouton pour afficher les valeurs R, V, B sélectionnées.
+    """
+    global trace_color_bgr
+    color = colorchooser.askcolor(title="Choisir la couleur du tracé")
+    if color[1]:
+        r, g, b = int(color[0][0]), int(color[0][1]), int(color[0][2])
+        trace_color_bgr = (b, g, r)
+        btn_color1.config(text=f"Couleur tracé (R:{r} V:{g} B:{b})")
+
+
+def choisir_couleur_fond():
+    """
+    Ouvre la palette de couleurs du système pour permettre à l'utilisateur de personnaliser l'apparence du rendu (couleur du fond)\n
+        • Logique : Déclenche l'ouverture du sélecteur de couleur natif (colorchooser). \n
+                    Si une couleur est validée, elle est convertie du format RGB (interface) \n
+                    vers le format BGR (utilisé par le moteur vidéo OpenCV).\n
+        • Sortie : Met à jour la variable globale correspondante (bg_color_bgr ou trace_color_bgr) \n
+                    et actualise le texte du bouton pour afficher les valeurs R, V, B sélectionnées.
+    """
+    global bg_color_bgr
+    color = colorchooser.askcolor(title="Choisir la couleur de fond")
+    if color[1]:
+        r, g, b = int(color[0][0]), int(color[0][1]), int(color[0][2])
+        bg_color_bgr = (b, g, r)
+        btn_color2.config(text=f"Couleur fond (R:{r} V:{g} B:{b})")
 
 def lancer_traitement():
     """
@@ -328,6 +447,16 @@ def traitement_background():
         t2 = float(entry_end.get().replace(',', '.'))
         mode_image = var_image.get()
         val_image_str = entry_frames.get().replace(',', '.')
+        thick_str = entry_thickness.get().strip()
+
+        hist_str = entry_hist.get().strip()
+        if hist_str == "":
+            hist_val = 0
+        else:
+            hist_val = int(float(hist_str))
+
+        val_thick = int(float(thick_str.replace(',', '.')))
+        val_thick = max(1, val_thick)
 
         if mode_image == "i":
             nb_imgs = int(float(val_image_str))
@@ -363,13 +492,12 @@ def traitement_background():
         df_global = None
         x_filt, y_filt, t_filt = [], [], []
 
+        df_global = pd.read_csv(tsv, sep='\t', comment='#')
+        nom_full = os.path.join(dossier_sortie, f"{dossier_sortie}_FULL.csv")
+        df_global.to_csv(nom_full, index=False, sep=',')
+        logging.info(f" -> Fichier csv sauvegardé : {nom_full}")
+
         if choix != "1":
-            df_global = pd.read_csv(tsv, sep='\t', comment='#')
-
-            nom_full = os.path.join(dossier_sortie, f"{dossier_sortie}_FULL.csv")
-            df_global.to_csv(nom_full, index=False, sep=';')
-            logging.info(f" -> Fichier extrait sauvegardé : {nom_full}")
-
             gaze2dx = df_global.get('Gaze2dX', pd.Series()).tolist()
             gaze2dy = df_global.get('Gaze2dY', pd.Series()).tolist()
             media_ts = df_global.get('MediaTimeStamp', pd.Series()).tolist()
@@ -383,11 +511,13 @@ def traitement_background():
         if choix == "1":
             prendre_extrait(video, t1, t2, dossier_sortie)
         elif choix == "2":
-            video_chemin(video, t1, t2, dossier_sortie,  x_filt, y_filt, t_filt)
+            video_chemin(video, t1, t2, dossier_sortie,  x_filt, y_filt, t_filt, val_thick, trace_color=trace_color_bgr)
         elif choix == "3":
-            generer_images_boucle(video, t1, t2, nb_imgs, dossier_sortie, x_filt, y_filt, t_filt, "parcours", show_bg=avec_fond)
+            generer_images_boucle(video, t1, t2, nb_imgs, dossier_sortie, x_filt, y_filt, t_filt, val_thick, "parcours",
+                                  show_bg=avec_fond, history_frames=hist_val, bg_color=bg_color_bgr, trace_color=trace_color_bgr)
         elif choix == "4":
-            generer_images_boucle(video, t1, t2, nb_imgs, dossier_sortie, x_filt, y_filt, t_filt, "points", show_bg=avec_fond)
+            generer_images_boucle(video, t1, t2, nb_imgs, dossier_sortie, x_filt, y_filt, t_filt, val_thick, "points",
+                                  show_bg=avec_fond,  bg_color=bg_color_bgr, trace_color=trace_color_bgr)
 
         if df_global is not None:
             sauvegarder_csv_extrait(df_global, t1, t2, dossier_sortie)
@@ -416,6 +546,7 @@ def rediriger_stdout(text):
         log_widget.insert(tk.END, text)
         log_widget.see(tk.END)
         log_widget.configure(state='disabled')
+        log_widget.update_idletasks()
     except Exception:
         try:
             CONSOL_WRITE(text)
@@ -432,16 +563,46 @@ def mise_a_jour_interface():
     """
 
     choix = var_action.get()
+    coche = var_bg.get()
+    mode_image = var_image.get()
+    if choix != "1":
+        lbl_thick.grid(row=4, column=0, sticky="w",pady=5)
+        entry_thickness.grid(row=4, column=1, sticky="w", pady=5)
+        btn_color1.grid(row=4, column=2, columnspan=2, sticky="w", pady=5)
+
+    else :
+        lbl_thick.grid_remove()
+        entry_thickness.grid_remove()
+        btn_color1.grid_remove()
+
     if choix in ["3", "4"]:
-        btn1.grid(row=2, column=0, sticky="w", padx=5)
-        btn2.grid(row=2, column=1, sticky="w", padx=5)
-        entry_frames.grid(row=3, column=0, sticky="w", padx=5)
-        chk_bg.grid(row=4, column=0, columnspan=4, sticky="w", pady=5)
+        btn1.grid(row=2, column=0, columnspan=2, sticky="w", padx=5)
+        btn2.grid(row=3, column=0, columnspan=2, sticky="w", padx=5)
+        if mode_image=="i":
+            entry_frames.grid(row=2, column=2, sticky="w", padx=5)
+        else :
+            entry_frames.grid(row=3, column=2, sticky="w", padx=5)
+        chk_bg.grid(row=5, column=0, columnspan=4, sticky="w", pady=5)
+        if not coche :
+            btn_color2.grid(row=6, column=0, columnspan=2, sticky="w", pady=5)
+        else :
+            btn_color2.grid_remove()
+
     else:
         btn1.grid_remove()
         btn2.grid_remove()
         entry_frames.grid_remove()
         chk_bg.grid_remove()
+
+    if choix == "3":
+        lbl_hist.grid(row=7, column=0, sticky="w", pady=5)
+        entry_hist.grid(row=7, column=1, sticky="w", padx=5)
+        lbl_hist_info.grid(row=7, column=2, columnspan=2, sticky="w")
+
+    else :
+        lbl_hist.grid_remove()
+        entry_hist.grid_remove()
+        lbl_hist_info.grid_remove()
 
 # ---------------------------------------------------------
 # Programme pincipal permettant l'exécution
@@ -537,7 +698,28 @@ if __name__ == "__main__":
     entry_frames = ttk.Entry(frame_params, width=10)
     entry_frames.insert(0, "10")
 
-    chk_bg = ttk.Checkbutton(frame_params, text="Afficher l'image en fond", variable=var_bg)
+    lbl_thick = ttk.Label(frame_params, text="Epaisseur trait/point :")
+    entry_thickness = ttk.Entry(frame_params, width=10)
+    entry_thickness.insert(0, "5")
+
+    btn_color1 = ttk.Button(frame_params,
+                            text="Choisir couleur traits/points (Bleu par défaut)",
+                            command=choisir_couleur_trace)
+
+    chk_bg = ttk.Checkbutton(frame_params,
+                             text="Afficher l'image en fond",
+                             variable=var_bg,
+                             command=mise_a_jour_interface)
+    btn_color2 = ttk.Button(frame_params,
+                            text="Choisir couleur fond (Noir par défaut)",
+                            command=choisir_couleur_fond)
+
+    lbl_hist = ttk.Label(frame_params, text="Historique (nb images) :")
+    entry_hist = ttk.Entry(frame_params, width=10)
+    lbl_hist_info = ttk.Label(frame_params,
+                              text="(0 = tout garder)",
+                              font=("Arial", 8, "italic"),
+                              foreground="gray")
 
     # --- BLOC 4 : Exécution et journal ---
     btn_run = ttk.Button(root, text="▶ LANCER", command=lancer_traitement)
