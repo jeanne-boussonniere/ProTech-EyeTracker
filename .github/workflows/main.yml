@@ -1,4 +1,4 @@
-name: ProTech Matrix Tests
+name: ProTech GitHub Actions
 
 on:
   push:
@@ -23,12 +23,41 @@ jobs:
         run: sudo apt-get update && sudo apt-get install -y python3-tk
 
       - name: Install Poetry
-        run: pip install poetry
+        uses: snok/install-poetry@v1
 
       - name: Install dependencies with Poetry
         run: poetry install --no-root
 
       - name: Run Tests
         env:
-          PYTHONPATH: .
+            PYTHONPATH: .
         run: poetry run pytest
+
+  quality:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+        with:
+            fetch-depth: 0
+
+      - uses: actions/setup-python@v5
+        with:
+          python-version: "3.13"
+
+      - name: Install System Tkinter
+        run: sudo apt-get update && sudo apt-get install -y python3-tk
+
+      - name: Install Poetry
+        uses: snok/install-poetry@v1
+
+      - name: Install dependencies
+        run: poetry install --no-root
+
+      - name: Run Pylint
+        run: poetry run pylint protech/code.py
+
+      - name: Run TruffleHog Secret Scan
+        uses: trufflesecurity/trufflehog@main
+        with:
+            extra_args: --debug --only-verified
+            path: .
