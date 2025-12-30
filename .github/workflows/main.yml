@@ -59,5 +59,7 @@ jobs:
       - name: Run TruffleHog Secret Scan
         uses: trufflesecurity/trufflehog@main
         with:
-            extra_args: --debug --only-verified
+            extra_args: --debug --only-verified --results=verified,unknown
             path: .
+            base: ""
+            head: ""
