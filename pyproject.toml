@@ -5,7 +5,7 @@ description = "Analyse de données d'eye-tracking (fichiers TSV) et synchronisat
 authors = ["jeanne-boussonniere"]
 readme = "README.md"
 packages = [
-    { include = "code.py" }
+    { include = "protech" }
 ]
 
 [tool.poetry.dependencies]
