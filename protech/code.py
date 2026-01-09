@@ -9,12 +9,6 @@ import cv2
 import numpy as np
 from moviepy import VideoFileClip, CompositeVideoClip, VideoClip
 
-#Chemin de ffmpeg.exe pour pouvoir utiliser pdoc (car moviepy le demande)
-_CHEMIN_FFMPEG = fr"C:\Users\jeann\AppData\Local\Programs\Python\Python313\Lib\site-packages\imageio_ffmpeg\binaries\ffmpeg.exe"
-if os.path.exists(_CHEMIN_FFMPEG):
-    os.environ["IMAGEIO_FFMPEG_EXE"] = _CHEMIN_FFMPEG
-else:
-    print(f"ATTENTION : FFmpeg non trouvé au chemin : {_CHEMIN_FFMPEG}")
 
 #Configuration des loggings
 logging.basicConfig(
@@ -33,8 +27,8 @@ même après que `sys.stdout` a été redirigé vers l'interface graphique (Tkin
 """
 
 # Variables globales pour les couleurs
-bg_color_bgr = (0,0,0)
-trace_color_bgr = (255, 255, 0)
+_bg_color_bgr = (0,0,0)
+_trace_color_bgr = (255, 255, 0)
 
 # ---------------------------------------------------------
 # Traitement des données
@@ -384,14 +378,14 @@ def choisir_couleur_trace():
         • Logique : Déclenche l'ouverture du sélecteur de couleur natif (colorchooser). \n
                     Si une couleur est validée, elle est convertie du format RGB (interface) \n
                     vers le format BGR (utilisé par le moteur vidéo OpenCV).\n
-        • Sortie : Met à jour la variable globale correspondante (bg_color_bgr ou trace_color_bgr)\n
+        • Sortie : Met à jour la variable globale correspondante (_bg_color_bgr ou _trace_color_bgr)\n
                     et actualise le texte du bouton pour afficher les valeurs R, V, B sélectionnées.
     """
-    global trace_color_bgr
+    global _trace_color_bgr
     color = colorchooser.askcolor(title="Choisir la couleur du tracé")
     if color[1]:
         r, g, b = int(color[0][0]), int(color[0][1]), int(color[0][2])
-        trace_color_bgr = (b, g, r)
+        _trace_color_bgr = (b, g, r)
         btn_color1.config(text=f"Couleur tracé (R:{r} V:{g} B:{b})")
 
 
@@ -401,14 +395,14 @@ def choisir_couleur_fond():
         • Logique : Déclenche l'ouverture du sélecteur de couleur natif (colorchooser). \n
                     Si une couleur est validée, elle est convertie du format RGB (interface) \n
                     vers le format BGR (utilisé par le moteur vidéo OpenCV).\n
-        • Sortie : Met à jour la variable globale correspondante (bg_color_bgr ou trace_color_bgr) \n
+        • Sortie : Met à jour la variable globale correspondante (_bg_color_bgr ou _trace_color_bgr) \n
                     et actualise le texte du bouton pour afficher les valeurs R, V, B sélectionnées.
     """
-    global bg_color_bgr
+    global _bg_color_bgr
     color = colorchooser.askcolor(title="Choisir la couleur de fond")
     if color[1]:
         r, g, b = int(color[0][0]), int(color[0][1]), int(color[0][2])
-        bg_color_bgr = (b, g, r)
+        _bg_color_bgr = (b, g, r)
         btn_color2.config(text=f"Couleur fond (R:{r} V:{g} B:{b})")
 
 def lancer_traitement():
@@ -511,13 +505,13 @@ def traitement_background():
         if choix == "1":
             prendre_extrait(video, t1, t2, dossier_sortie)
         elif choix == "2":
-            video_chemin(video, t1, t2, dossier_sortie,  x_filt, y_filt, t_filt, val_thick, trace_color=trace_color_bgr)
+            video_chemin(video, t1, t2, dossier_sortie,  x_filt, y_filt, t_filt, val_thick, trace_color=_trace_color_bgr)
         elif choix == "3":
             generer_images_boucle(video, t1, t2, nb_imgs, dossier_sortie, x_filt, y_filt, t_filt, val_thick, "parcours",
-                                  show_bg=avec_fond, history_frames=hist_val, bg_color=bg_color_bgr, trace_color=trace_color_bgr)
+                                  show_bg=avec_fond, history_frames=hist_val, bg_color=_bg_color_bgr, trace_color=_trace_color_bgr)
         elif choix == "4":
             generer_images_boucle(video, t1, t2, nb_imgs, dossier_sortie, x_filt, y_filt, t_filt, val_thick, "points",
-                                  show_bg=avec_fond,  bg_color=bg_color_bgr, trace_color=trace_color_bgr)
+                                  show_bg=avec_fond,  bg_color=_bg_color_bgr, trace_color=_trace_color_bgr)
 
         if df_global is not None:
             sauvegarder_csv_extrait(df_global, t1, t2, dossier_sortie)
